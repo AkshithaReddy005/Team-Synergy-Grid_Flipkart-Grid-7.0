@@ -18,6 +18,11 @@ class GbertRequest(BaseModel):
     history: List[Dict[str, Any]] = []
     k: int = 10
 
+class GbertRerankRequest(BaseModel):
+    user_id: str
+    history: List[Dict[str, Any]] = []
+    candidate_pids: List[str] = []
+
 class PersonalizeRequest(BaseModel):
     features: List[float]
 class PersonalizeBatchRequest(BaseModel):
@@ -35,6 +40,13 @@ def recommend_gbert(req: GbertRequest):
         raise HTTPException(status_code=400, detail="k must be > 0")
     recs = app.state.gbert.recommend(req.user_id, req.history, req.k)
     return {"user_id": req.user_id, "recommendations": recs}
+
+@app.post("/recommend/gbert/rerank")
+def rerank_gbert(req: GbertRerankRequest):
+    if not req.candidate_pids:
+        raise HTTPException(status_code=400, detail="candidate_pids required")
+    scores = app.state.gbert.rerank_candidates(req.user_id, req.history, req.candidate_pids)
+    return {"user_id": req.user_id, "scores": scores}
 
 @app.post("/personalize/score")
 def personalize_score(req: PersonalizeRequest):

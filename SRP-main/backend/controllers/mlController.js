@@ -17,6 +17,21 @@ exports.gbertRecommend = async (req, res) => {
   }
 };
 
+exports.gbertRerank = async (req, res) => {
+  try {
+    const { user_id, history = [], candidate_pids = [] } = req.body || {};
+    const { data } = await axios.post(`${ML_SERVICE_URL}/recommend/gbert/rerank`, {
+      user_id,
+      history,
+      candidate_pids,
+    });
+    res.json(data);
+  } catch (err) {
+    const status = err.response?.status || 500;
+    res.status(status).json({ error: err.response?.data || 'ML service error' });
+  }
+};
+
 exports.personalizeScore = async (req, res) => {
   try {
     const { features = [] } = req.body || {};

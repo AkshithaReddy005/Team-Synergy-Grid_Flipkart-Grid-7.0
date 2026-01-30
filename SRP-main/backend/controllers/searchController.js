@@ -499,6 +499,36 @@ exports.searchProducts = async (req, res) => {
       }
     }
 
+    // Optional G-BERT reranking if user_id is provided
+    if (req.query.user_id && uniqueResults.length > 0) {
+      try {
+        const candidatePids = uniqueResults.map(p => p.productId || p.pid || p.id).filter(Boolean);
+        // TODO: fetch user history from a store; for now use empty history
+        const history = []; // Replace with real history fetch
+        const { data: gbertData } = await axios.post(`${ML_SERVICE_URL}/recommend/gbert/rerank`, {
+          user_id: req.query.user_id,
+          history,
+          candidate_pids: candidatePids,
+        });
+        const gbertScores = Array.isArray(gbertData?.scores) ? gbertData.scores : [];
+        const pid2score = {};
+        for (const item of gbertScores) {
+          pid2score[item.product_id] = item.score;
+        }
+        const gamma = 0.6; // existing score weight
+        const delta = 0.4; // G-BERT weight
+        uniqueResults = uniqueResults.map(p => {
+          const pid = p.productId || p.pid || p.id;
+          const gScore = pid2score[pid] ?? 0;
+          const base = typeof p._score === 'number' ? p._score : 0;
+          const finalScore = gamma * base + delta * gScore;
+          return { ...p, _score: finalScore, _score_gbert: gScore };
+        }).sort((a, b) => (b._score || 0) - (a._score || 0));
+      } catch (e) {
+        console.error('[Search Controller] G-BERT rerank error:', e?.response?.data || e?.message || e);
+      }
+    }
+
     res.json({ products: uniqueResults, total: response.hits.total.value });
 
   } catch (error) {

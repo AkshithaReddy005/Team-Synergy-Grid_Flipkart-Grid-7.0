@@ -563,8 +563,21 @@ try {
 - MongoDB
 - Elasticsearch
 - Google Gemini API Key
+- Docker & Docker Compose (optional, for all-in-one)
 
-### **Installation**
+### **Option 1: Run with Docker Compose (Recommended)**
+```bash
+# Clone repository
+git clone https://github.com/AkshithaReddy005/Team-Synergy-Grid_Flipkart-Grid-7.0
+cd Team-Synergy-Grid_Flipkart-Grid-7.0
+
+# Run both services
+docker-compose up --build
+```
+- Backend: http://localhost:5001
+- ML Service: http://localhost:8001
+
+### **Option 2: Manual Setup**
 ```bash
 # Clone repository
 git clone https://github.com/AkshithaReddy005/Team-Synergy-Grid_Flipkart-Grid-7.0
@@ -573,24 +586,31 @@ git clone https://github.com/AkshithaReddy005/Team-Synergy-Grid_Flipkart-Grid-7.
 cd SRP-main/backend
 npm install
 
-# Install frontend dependencies
-cd ../../
-npm install
+# Install ML service dependencies
+cd ../../ml-service
+pip install -r requirements.txt
 
-# Set up environment variables
-cp SRP-main/backend/.env.example SRP-main/backend/.env
-# Add your Gemini API key and database configurations
+# Train personalization models (optional)
+python -c "from personalization import train_and_save_personalization; train_and_save_personalization('../SRP-main/Dataset_Final_TeamSynergyGrid.csv')"
+
+# Start ML service (on port 8001 to avoid Windows conflicts)
+python train_and_run.py --skip-train
+
+# In another terminal, start backend
+cd ../SRP-main/backend
+npm start
 ```
 
-### **Running the Application**
-```bash
-# Start backend server
-cd SRP-main/backend
-npm start
-
-# Start frontend development server
-cd ../../
-npm run dev
+### **Environment Variables**
+Create `SRP-main/backend/.env`:
+```env
+PORT=5001
+MONGO_URI=mongodb://localhost:27017/flipkart-grid-db
+ELASTIC_NODE=http://localhost:9200
+ELASTIC_USERNAME=elastic
+ELASTIC_PASSWORD=changeme
+GEMINI_API_KEY=your_gemini_api_key_here
+ML_SERVICE_URL=http://localhost:8001
 ```
 
 ---
