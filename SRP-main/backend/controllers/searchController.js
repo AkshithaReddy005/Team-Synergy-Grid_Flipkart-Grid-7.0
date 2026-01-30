@@ -1,6 +1,8 @@
 const elasticClient = require('../elasticClient');
 const { getCorrectedSpelling, getConceptualSearchKeywords, getExpectedCategories } = require('../services/geminiService');
 const extractFilters = require('../utils/dynamicQueryParser');
+const axios = require('axios');
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
 // Common typo mappings for better search results
 const commonTypos = {
@@ -459,8 +461,44 @@ exports.searchProducts = async (req, res) => {
     
     // Flatten the response to match the dynamic search format
     const results = response.hits.hits.map(hit => ({ ...hit._source, _score: hit._score }));
-    const uniqueResults = Array.from(new Map(results.map(item => [item.productId, item])).values());
-    
+    let uniqueResults = Array.from(new Map(results.map(item => [item.productId || item.pid || item.id, item])).values());
+
+    // Optional personalization reranking
+    if ((req.query.personalize || '').toString().toLowerCase() === 'true' && uniqueResults.length > 0) {
+      try {
+        const features_list = uniqueResults.map(p => {
+          const price = toNumberSafe(p.price ?? p.discounted_price ?? p.retail_price);
+          const retail = toNumberSafe(p.retail_price ?? p.price ?? price);
+          const discounted = toNumberSafe(p.discounted_price ?? p.price ?? price);
+          const discount_pct = retail > 0 ? Math.max(0, Math.min(1, (retail - discounted) / retail)) : 0;
+          const rating = toNumberSafe(p.rating ?? p.product_rating);
+          const popularity = toNumberSafe(p.popularity);
+          const brand_freq_proxy = 1; // simple proxy; real-time frequency requires aggregation
+          return [
+            safeLog(discounted),
+            safeLog(retail),
+            discount_pct,
+            rating,
+            safeLog(popularity),
+            safeLog(brand_freq_proxy),
+          ];
+        });
+
+        const { data } = await axios.post(`${ML_SERVICE_URL}/personalize/score-batch`, { features_list });
+        const scores = Array.isArray(data?.scores) ? data.scores : [];
+        const alpha = 0.7; // ES relevance weight
+        const beta = 0.3;  // personalization weight
+        uniqueResults = uniqueResults.map((p, idx) => {
+          const pScore = typeof scores[idx] === 'number' ? scores[idx] : 0;
+          const base = typeof p._score === 'number' ? p._score : 0;
+          const finalScore = alpha * base + beta * pScore;
+          return { ...p, _score: finalScore, _score_es: base, _score_personal: pScore };
+        }).sort((a, b) => (b._score || 0) - (a._score || 0));
+      } catch (e) {
+        console.error('[Search Controller] Personalization rerank error:', e?.response?.data || e?.message || e);
+      }
+    }
+
     res.json({ products: uniqueResults, total: response.hits.total.value });
 
   } catch (error) {
@@ -468,3 +506,14 @@ exports.searchProducts = async (req, res) => {
     res.status(500).json({ message: 'Could not fetch search results. Please try again later.' });
   }
 };
+
+function toNumberSafe(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function safeLog(x) {
+  x = toNumberSafe(x);
+  if (x < 0) x = 0;
+  return Math.log1p(x);
+}

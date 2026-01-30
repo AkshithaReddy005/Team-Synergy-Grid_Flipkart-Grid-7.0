@@ -16,6 +16,7 @@ app.use('/api/search', require('./routes/searchRoutes'));
 app.use('/api/srp', require('./routes/srpDynamicRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/test', require('./routes/testRoutes')); 
+app.use('/api/ml', require('./routes/mlRoutes'));
 app.get('/', (req, res) => res.send('API Running'));
 
 const PORT = process.env.PORT || 5001;
