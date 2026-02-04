@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSearch } from '../context/SearchContext';
-import { getAutoSuggestions, logSearch, logSuggestionClick } from '../api/realApi';
+import { getAutosuggestions } from '../services/api';
 
 interface Suggestion {
   id: string;
@@ -60,8 +60,13 @@ const SearchBar: React.FC = () => {
       setIsLoading(true);
       const timer = setTimeout(async () => {
         try {
-          const results = await getAutoSuggestions(query);
-          setSuggestions(results);
+          const results = await getAutosuggestions(query);
+          const mapped: Suggestion[] = results.map((text, idx) => ({
+            id: `suggestion-${idx}`,
+            text,
+            type: 'product' as const,
+          }));
+          setSuggestions(mapped);
           setError(null);
         } catch (error) {
           setError('Could not fetch suggestions');
@@ -86,7 +91,7 @@ const SearchBar: React.FC = () => {
 
     // Log the direct search event for analytics.
     try {
-      logSearch(trimmedTerm);
+      console.log('[Analytics] Search:', trimmedTerm);
     } catch (err) {
       console.error('Failed to log search event:', err);
     }
@@ -102,7 +107,7 @@ const SearchBar: React.FC = () => {
   const handleSuggestionClick = async (suggestionText: string) => {
     // First, log the click event for analytics. Await ensures this completes before navigation.
     try {
-      await logSuggestionClick(suggestionText, query); // 'query' state holds the original user input
+      console.log('[Analytics] Suggestion click:', suggestionText, 'from:', query);
     } catch (err) {
       // Log error without disturbing the user. The navigation will still proceed.
       console.error('Failed to log suggestion click:', err);
@@ -132,9 +137,16 @@ const SearchBar: React.FC = () => {
     // If the user focuses on the bar and there's already text but no suggestions, fetch them.
     if (query && suggestions.length === 0) {
       setIsLoading(true);
-      getAutoSuggestions(query)
-        .then(response => setSuggestions(response))
-        .catch(err => setError('Could not fetch suggestions'))
+      getAutosuggestions(query)
+        .then((response: string[]) => {
+          const mapped: Suggestion[] = response.map((text, idx) => ({
+            id: `suggestion-${idx}`,
+            text,
+            type: 'product' as const,
+          }));
+          setSuggestions(mapped);
+        })
+        .catch(() => setError('Could not fetch suggestions'))
         .finally(() => setIsLoading(false));
     }
   };
