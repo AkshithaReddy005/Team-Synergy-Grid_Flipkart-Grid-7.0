@@ -1,37 +1,21 @@
 const elasticClient = require('../elasticClient');
 const { getCorrectedSpelling, getConceptualSearchKeywords, getExpectedCategories } = require('../services/geminiService');
-const extractFilters = require('../utils/dynamicQueryParser');
 const axios = require('axios');
+const { Client } = require('@elastic/elasticsearch');
+const Product = require('../models/Product');
+const UserHistoryService = require('../services/userHistoryService');
+const ABTestService = require('../services/abTestService');
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
-// Common typo mappings for better search results
-const commonTypos = {
-  'wach': 'watch',
-  'fone': 'phone',
-  'lapto': 'laptop',
-  'earpods': 'earbuds',
-  'blututh': 'bluetooth',
-  'raning': 'running',
-  'gents': 'men',
-  'ladies': 'women',
-  'chajjar': 'coffee',
-  'powerbank': 'power bank',
-  'samsun': 'samsung',
-  'iphne': 'iphone',
-  'nke': 'nike',
-  'addidas': 'adidas',
-  'puma': 'puma',
-  'fastrack': 'fastrack',
-  'titan': 'titan'
-};
-
-// Function to correct common typos
-const getCorrectedQuery = (query) => {
-  const lowerQuery = query.toLowerCase();
-  for (const [typo, correction] of Object.entries(commonTypos)) {
-    if (lowerQuery.includes(typo)) {
-      return query.replace(new RegExp(typo, 'gi'), correction);
+// ML-based spell correction
+const correctWithML = async (query) => {
+  try {
+    const { data } = await axios.post(`${ML_SERVICE_URL}/spell/correct`, { text: query });
+    if (data && typeof data.corrected === 'string' && data.corrected.trim()) {
+      return data.corrected;
     }
+  } catch (e) {
+    // ignore and return original
   }
   return query;
 };
@@ -211,7 +195,8 @@ exports.getAutosuggestions = async (req, res) => {
 exports.searchProducts = async (req, res) => {
   const { q, page = 1, category, brand, sortBy = 'relevance', price_lt, price_gt, rating_gte } = req.query;
 
-  console.log('[Search] Original query:', q, ', Corrected query:', q);
+  const mlCorrectedQuery = await correctWithML(q || '');
+  console.log('[Search] Original query:', q, ', ML-corrected query:', mlCorrectedQuery);
 
   if (!q) {
     return res.status(400).json({ error: "Query is required" });
@@ -463,7 +448,7 @@ exports.searchProducts = async (req, res) => {
     const results = response.hits.hits.map(hit => ({ ...hit._source, _score: hit._score }));
     let uniqueResults = Array.from(new Map(results.map(item => [item.productId || item.pid || item.id, item])).values());
 
-    // Optional personalization reranking
+        // Optional personalization reranking
     if ((req.query.personalize || '').toString().toLowerCase() === 'true' && uniqueResults.length > 0) {
       try {
         const features_list = uniqueResults.map(p => {
@@ -486,8 +471,9 @@ exports.searchProducts = async (req, res) => {
 
         const { data } = await axios.post(`${ML_SERVICE_URL}/personalize/score-batch`, { features_list });
         const scores = Array.isArray(data?.scores) ? data.scores : [];
-        const alpha = 0.7; // ES relevance weight
-        const beta = 0.3;  // personalization weight
+        const weights = ABTestService.getWeights(req.query.user_id || 'anonymous');
+        const alpha = 1 - weights.personalWeight; // ES relevance weight
+        const beta = weights.personalWeight;  // personalization weight
         uniqueResults = uniqueResults.map((p, idx) => {
           const pScore = typeof scores[idx] === 'number' ? scores[idx] : 0;
           const base = typeof p._score === 'number' ? p._score : 0;
@@ -503,11 +489,16 @@ exports.searchProducts = async (req, res) => {
     if (req.query.user_id && uniqueResults.length > 0) {
       try {
         const candidatePids = uniqueResults.map(p => p.productId || p.pid || p.id).filter(Boolean);
-        // TODO: fetch user history from a store; for now use empty history
-        const history = []; // Replace with real history fetch
+        // Fetch real user history
+        const history = await UserHistoryService.fetchHistory(req.query.user_id, 20);
+        const enrichedHistory = await UserHistoryService.enrichWithProductDetails(history);
         const { data: gbertData } = await axios.post(`${ML_SERVICE_URL}/recommend/gbert/rerank`, {
           user_id: req.query.user_id,
-          history,
+          history: enrichedHistory.map(h => ({
+            product_id: h.product_id,
+            title: h.product?.name || '',
+            action: h.action,
+          })),
           candidate_pids: candidatePids,
         });
         const gbertScores = Array.isArray(gbertData?.scores) ? gbertData.scores : [];
@@ -515,8 +506,9 @@ exports.searchProducts = async (req, res) => {
         for (const item of gbertScores) {
           pid2score[item.product_id] = item.score;
         }
-        const gamma = 0.6; // existing score weight
-        const delta = 0.4; // G-BERT weight
+        const weights = ABTestService.getWeights(req.query.user_id);
+        const gamma = 1 - weights.gbertWeight; // existing score weight
+        const delta = weights.gbertWeight; // G-BERT weight
         uniqueResults = uniqueResults.map(p => {
           const pid = p.productId || p.pid || p.id;
           const gScore = pid2score[pid] ?? 0;
