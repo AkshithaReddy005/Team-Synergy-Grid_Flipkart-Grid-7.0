@@ -3,7 +3,7 @@ version: '3.8'
 services:
   frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
     ports:
       - "3000:80"
@@ -14,7 +14,7 @@ services:
 
   backend:
     build:
-      context: ./SRP-main/backend
+      context: ./backend
       dockerfile: Dockerfile
     ports:
       - "5001:5001"
@@ -35,7 +35,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./SRP-main:/app/SRP-main:ro  # read-only catalog mount
+      - ./data:/app/data:ro  # read-only catalog mount
     networks:
       - app-net
 

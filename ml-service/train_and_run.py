@@ -6,10 +6,17 @@ Convenience script to:
 3) Start the FastAPI service
 """
 
-import argparse
+import os
 import subprocess
-import sys
+import argparse
 from pathlib import Path
+
+# Paths (Updated to new monorepo structure)
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+CATALOG_PATH = BASE_DIR.parent / "data" / "Dataset_Final_TeamSynergyGrid.csv"
+SYNTHETIC_SESSIONS_PATH = DATA_DIR / "synthetic_sessions.csv"
+GBERT_MODEL_DIR = DATA_DIR / "gbert_model"
 
 def run_cmd(cmd):
     print(f"Running: {cmd}")
@@ -19,9 +26,9 @@ def run_cmd(cmd):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--catalog", default="../SRP-main/Dataset_Final_TeamSynergyGrid.csv")
-    parser.add_argument("--sessions-out", default="data/synthetic_sessions.csv")
-    parser.add_argument("--gbert-out", default="models/gbert")
+    parser.add_argument("--catalog", default=str(CATALOG_PATH))
+    parser.add_argument("--sessions-out", default=str(SYNTHETIC_SESSIONS_PATH))
+    parser.add_argument("--gbert-out", default=str(GBERT_MODEL_DIR))
     parser.add_argument("--skip-train", action="store_true", help="Skip training and just start the service")
     parser.add_argument("--skip-gen", action="store_true", help="Skip session generation")
     args = parser.parse_args()
